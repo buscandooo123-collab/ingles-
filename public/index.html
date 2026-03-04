@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>English Spelling Practice</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Sora:wght@700;800&display=swap" rel="stylesheet">
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<style>
+  :root {
+    --bg-deep: #06080f;
+    --bg-card: rgba(12, 16, 32, 0.7);
+    --bg-input: rgba(18, 22, 48, 0.8);
+    --border-subtle: rgba(80, 120, 200, 0.1);
+    --border-active: rgba(80, 140, 255, 0.35);
+    --text-primary: #d8ddf0;
+    --text-secondary: #7888b8;
+    --text-muted: #4a5580;
+    --accent-blue: #4d8af0;
+    --accent-purple: #8b6cf0;
+    --accent-green: #30d890;
+    --accent-red: #f05060;
+    --accent-gold: #f0c040;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(60,100,220,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, rgba(130,80,220,0.05) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ====== PATTERN LOCK SCREEN ====== */
+  #lockScreen {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--bg-deep);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px;
+  }
+  #lockScreen.hidden { display: none; }
+
+  .lock-title {
+    font-family: 'Sora', sans-serif;
+    font-size: 26px; font-weight: 800;
+    background: linear-gradient(135deg, #4d8af0, #a06cf0, #f07090);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .lock-subtitle { font-size: 14px; color: var(--text-secondary); text-align: center; }
+  .lock-error { font-size: 13px; color: var(--accent-red); min-height: 20px; }
+
+  .pattern-grid {
+    position: relative;
+    width: 240px; height: 240px;
+    touch-action: none;
+  }
+  .pattern-dot {
+    position: absolute;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(80, 120, 200, 0.2);
+    border: 2px solid rgba(80, 120, 200, 0.3);
+    transition: all 0.2s;
+    z-index: 2;
+  }
+  .pattern-dot.active {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 16px rgba(77,138,240,0.5);
+    transform: scale(1.3);
+  }
+  .pattern-dot.success {
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+    box-shadow: 0 0 16px rgba(48,216,144,0.5);
+  }
+  .pattern-dot.error {
+    background: var(--accent-red);
+    border-color: var(--accent-red);
+    box-shadow: 0 0 16px rgba(240,80,96,0.5);
+  }
+
+  #patternCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+  }
+
+  .lock-hint {
+    font-size: 12px; color: var(--text-muted);
+    text-align: center; max-width: 260px; line-height: 1.5;
+  }
+
+  .lock-reset {
+    margin-top: 8px; padding: 8px 16px;
+    background: transparent; border: 1px solid rgba(240,80,96,0.2);
+    border-radius: 8px; color: var(--accent-red);
+    font-size: 12px; font-family: 'DM Sans', sans-serif;
+    cursor: pointer; display: none;
+  }
+  .lock-reset.show { display: block; }
+
+  /* ====== MAIN APP ====== */
+  .app { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 0 16px 40px; }
+  .app.hidden { display: none; }
+
+  .header {
+    padding: 28px 0 24px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 24px;
+    display: flex; align-items: flex-end;
+    justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .header h1 {
+    font-family: 'Sora', sans-serif;
+    font-size: 32px; font-weight: 800; letter-spacing: -1px;
+    background: linear-gradient(135deg, #4d8af0 0%, #a06cf0 50%, #f07090 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    line-height: 1.1;
+  }
+  .header p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+
+  .btn-lock {
+    padding: 8px 14px; border-radius: 8px;
+    background: rgba(240,80,96,0.08); border: 1px solid rgba(240,80,96,0.15);
+    color: var(--accent-red); font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: 'DM Sans', sans-serif;
+  }
+
+  .stats-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill {
+    font-size: 12px; font-weight: 600; padding: 5px 14px;
+    border-radius: 20px; border: 1px solid var(--border-subtle);
+    background: var(--bg-card); color: var(--text-secondary); white-space: nowrap;
+  }
+  .pill.green { color: var(--accent-green); border-color: rgba(48,216,144,0.2); background: rgba(48,216,144,0.06); }
+  .pill.gold { color: var(--accent-gold); border-color: rgba(240,192,64,0.2); background: rgba(240,192,64,0.06); }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+  .tab {
+    padding: 10px 22px; border: 1px solid var(--border-subtle);
+    border-radius: var(--radius); background: var(--bg-card);
+    color: var(--text-muted); font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.25s; font-family: 'DM Sans', sans-serif;
+  }
+  .tab:hover { border-color: var(--border-active); color: var(--text-secondary); }
+  .tab.active {
+    background: linear-gradient(135deg, rgba(60,100,220,0.2), rgba(130,80,220,0.12));
+    border-color: var(--border-active); color: var(--accent-blue);
+  }
+  .tab .badge {
+    margin-left: 8px; padding: 2px 8px;
+    border-radius: 20px; font-size: 11px; background: rgba(80,120,200,0.1);
+  }
+  .tab.active .badge { background: rgba(80,140,255,0.15); }
+
+  .input-toggle {
+    display: inline-flex; gap: 2px; padding: 3px;
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 10px; margin-bottom: 16px;
+  }
+  .toggle-btn {
+    padding: 7px 16px; border: none; border-radius: 8px;
+    background: transparent; color: var(--text-muted);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: 'DM Sans', sans-serif; transition: all 0.2s;
+  }
+  .toggle-btn.active { background: rgba(60,100,220,0.25); color: var(--accent-blue); }
+
+  .input-row { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+  .input-row input {
+    flex: 1; padding: 13px 18px;
+    background: var(--bg-input); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius); color: var(--text-primary);
+    font-size: 15px; font-family: 'DM Sans', sans-serif;
+    outline: none; transition: border-color 0.2s;
+  }
+  .input-row input:focus { border-color: var(--border-active); }
+  .input-row input::placeholder { color: var(--text-muted); }
+
+  .bulk-panel {
+    margin-bottom: 20px; padding: 18px;
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+  }
+  .bulk-panel p { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+  .bulk-panel textarea {
+    width: 100%; min-height: 150px; padding: 14px 16px;
+    background: var(--bg-input); border: 1px solid var(--border-subtle);
+    border-radius: 10px; color: var(--text-primary);
+    font-size: 14px; font-family: 'DM Sans', sans-serif;
+    line-height: 1.8; outline: none; resize: vertical;
+  }
+  .bulk-panel textarea:focus { border-color: var(--border-active); }
+  .bulk-panel textarea::placeholder { color: var(--text-muted); }
+  .bulk-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .bulk-footer span { font-size: 12px; color: var(--text-muted); }
+  .bulk-tip {
+    margin-top: 12px; padding: 10px 14px;
+    background: rgba(80,120,200,0.04);
+    border-radius: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.6;
+  }
+  .bulk-tip strong { color: var(--text-secondary); }
+
+  .progress-bar {
+    margin-top: 12px; height: 5px; border-radius: 3px;
+    background: rgba(30,35,60,0.6); overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+    transition: width 0.5s ease;
+  }
+
+  .btn {
+    padding: 11px 22px; border: none; border-radius: var(--radius);
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    font-family: 'DM Sans', sans-serif; transition: all 0.2s; white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-primary { background: linear-gradient(135deg, #3b6cdb, #7b5cd0); color: #fff; }
+  .btn-primary:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(60,100,220,0.3); }
+  .btn-outline { background: transparent; border: 1px solid var(--border-active); color: var(--accent-blue); }
+  .btn-green { background: rgba(48,216,144,0.12); border: 1px solid rgba(48,216,144,0.25); color: var(--accent-green); }
+  .btn-green:disabled { color: var(--text-muted); border-color: var(--border-subtle); background: var(--bg-card); }
+  .btn-danger { background: rgba(240,80,96,0.1); border: 1px solid rgba(240,80,96,0.2); color: var(--accent-red); }
+
+  .table-wrap {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 20px;
+  }
+  .table-header {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 42px;
+    background: rgba(20,28,60,0.6); border-bottom: 1px solid var(--border-subtle);
+  }
+  .table-header div {
+    padding: 13px 16px; font-size: 11px; font-weight: 700;
+    color: var(--text-secondary); letter-spacing: 0.8px; text-transform: uppercase;
+  }
+  .table-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 42px;
+    align-items: center; border-bottom: 1px solid rgba(80,120,200,0.06); transition: background 0.3s;
+  }
+  .table-row.correct { background: rgba(48,216,144,0.04); border-color: rgba(48,216,144,0.1); }
+  .table-row.wrong { background: rgba(240,80,96,0.04); border-color: rgba(240,80,96,0.1); }
+
+  .cell { padding: 10px 16px; font-size: 14px; }
+  .cell-english { font-weight: 500; transition: all 0.3s; }
+  .cell-english.hidden { filter: blur(6px); color: var(--text-muted); user-select: none; }
+  .cell-english.revealed { color: var(--text-primary); }
+  .cell-spanish { color: var(--text-secondary); }
+
+  .cell-attempt input {
+    width: 100%; padding: 8px 12px;
+    background: var(--bg-input); border: 2px solid rgba(80,120,200,0.12);
+    border-radius: 8px; color: var(--text-primary);
+    font-size: 14px; font-family: 'DM Sans', sans-serif;
+    outline: none; transition: all 0.3s;
+  }
+  .cell-attempt input:focus { border-color: var(--border-active); }
+  .cell-attempt input.correct { border-color: var(--accent-green); background: rgba(48,216,144,0.08); }
+  .cell-attempt input.wrong { border-color: var(--accent-red); background: rgba(240,80,96,0.08); }
+
+  .btn-delete {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 14px; padding: 6px; border-radius: 6px; transition: all 0.2s;
+  }
+  .btn-delete:hover { color: var(--accent-red); background: rgba(240,80,96,0.1); }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .actions .btn-danger { margin-left: auto; }
+
+  .empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+  .empty .icon { font-size: 52px; margin-bottom: 16px; }
+  .empty h3 { font-size: 17px; color: var(--text-secondary); margin-bottom: 6px; }
+  .empty p { font-size: 13px; }
+
+  .toast {
+    padding: 12px 20px;
+    background: rgba(48,216,144,0.1); border: 1px solid rgba(48,216,144,0.25);
+    border-radius: var(--radius); margin-bottom: 16px;
+    color: var(--accent-green); font-size: 14px; font-weight: 600;
+    animation: slideDown 0.3s ease;
+  }
+
+  .instructions {
+    margin-top: 28px; padding: 18px 22px;
+    background: rgba(12,16,32,0.5); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius); font-size: 13px; color: var(--text-muted); line-height: 1.8;
+  }
+  .instructions strong { color: var(--text-secondary); }
+
+  .learned-header {
+    display: grid; grid-template-columns: 1fr 1fr 130px;
+    background: rgba(20,28,60,0.6); border-bottom: 1px solid var(--border-subtle);
+  }
+  .learned-header div {
+    padding: 13px 16px; font-size: 11px; font-weight: 700;
+    color: var(--text-secondary); letter-spacing: 0.8px; text-transform: uppercase;
+  }
+  .learned-row {
+    display: grid; grid-template-columns: 1fr 1fr 130px;
+    border-bottom: 1px solid rgba(80,120,200,0.04);
+  }
+  .learned-row:nth-child(even) { background: rgba(20,28,60,0.2); }
+  .learned-row .cell-eng { padding: 11px 16px; font-size: 14px; color: var(--accent-green); font-weight: 500; }
+  .learned-row .cell-esp { padding: 11px 16px; font-size: 14px; color: var(--text-secondary); }
+  .learned-row .cell-date { padding: 11px 16px; font-size: 12px; color: var(--text-muted); }
+
+  .learned-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+
+  .saving-indicator {
+    position: fixed; top: 16px; right: 16px;
+    padding: 6px 14px; border-radius: 20px;
+    background: rgba(77,138,240,0.15); border: 1px solid rgba(77,138,240,0.2);
+    color: var(--accent-blue); font-size: 11px; font-weight: 600;
+    z-index: 500; opacity: 0; transition: opacity 0.3s;
+  }
+  .saving-indicator.show { opacity: 1; }
+
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .dn { display: none; }
+
+  @media (max-width: 640px) {
+    .header h1 { font-size: 24px; }
+    .table-header, .table-row { grid-template-columns: 0.8fr 1fr 1fr 36px; }
+    .table-header div, .cell { padding: 8px 10px; font-size: 12px; }
+    .btn { padding: 9px 14px; font-size: 12px; }
+    .pattern-grid { width: 200px; height: 200px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Saving indicator -->
+<div class="saving-indicator" id="savingIndicator">☁️ Guardando...</div>
+
+<!-- ==================== PATTERN LOCK SCREEN ==================== -->
+<div id="lockScreen">
+  <div class="lock-title">🔒 English Practice</div>
+  <div class="lock-subtitle" id="lockMessage">Dibuja un patrón para crear tu contraseña</div>
+  <div class="lock-error" id="lockError"></div>
+
+  <div class="pattern-grid" id="patternGrid">
+    <canvas id="patternCanvas"></canvas>
+  </div>
+
+  <div class="lock-hint" id="lockHint">Conecta al menos 4 puntos para crear tu patrón de acceso</div>
+  <button class="lock-reset" id="lockReset" onclick="resetPattern()">🗑️ Borrar patrón y empezar de nuevo</button>
+</div>
+
+<!-- ==================== MAIN APP ==================== -->
+<div class="app dn" id="mainApp">
+  <div class="header">
+    <div>
+      <h1>✏️ English Spelling Practice</h1>
+      <p>Aprende a escribir correctamente en inglés</p>
+    </div>
+    <div class="header-right">
+      <div class="stats-pills" id="statsPills"></div>
+      <button class="btn-lock" onclick="lockApp()">🔒 Bloquear</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" id="tabPractice" onclick="switchTab('practice')">📝 Práctica<span class="badge" id="badgePractice">0</span></button>
+    <button class="tab" id="tabLearned" onclick="switchTab('learned')">🏆 Aprendidas<span class="badge" id="badgeLearned">0</span></button>
+  </div>
+
+  <div class="toast dn" id="toast">✅ ¡Palabras guardadas en "Aprendidas"!</div>
+
+  <!-- PRACTICE TAB -->
+  <div id="practiceSection">
+    <div class="input-toggle">
+      <button class="toggle-btn active" id="toggleSingle" onclick="setInputMode('single')">Una palabra</button>
+      <button class="toggle-btn" id="toggleBulk" onclick="setInputMode('bulk')">📋 Pegar lista</button>
+    </div>
+
+    <div class="input-row" id="singleInput">
+      <input type="text" id="wordInput" placeholder="Escribe una palabra o frase en inglés..." onkeydown="if(event.key==='Enter')addWord()">
+      <button class="btn btn-primary" id="addBtn" onclick="addWord()">➕ Agregar</button>
+    </div>
+
+    <div class="bulk-panel dn" id="bulkInput">
+      <p>Pega tu lista de palabras en inglés (una por línea):</p>
+      <textarea id="bulkTextarea" placeholder="hello&#10;goodbye&#10;thank you&#10;beautiful&#10;knowledge&#10;&#10;— o también —&#10;&#10;1. hello&#10;2. goodbye&#10;3. thank you"></textarea>
+      <div class="bulk-footer">
+        <span id="bulkCount">0 palabras detectadas</span>
+        <button class="btn btn-primary" id="bulkBtn" onclick="addBulkWords()">➕ Agregar Todas</button>
+      </div>
+      <div class="progress-bar dn" id="progressBar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      <div class="bulk-tip">💡 <strong>Tip:</strong> Puedes copiar listas desde cualquier sitio. Se limpia automáticamente.</div>
+    </div>
+
+    <div id="practiceStats" class="dn" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+
+    <div class="table-wrap dn" id="tableWrap">
+      <div class="table-header">
+        <div>🇬🇧 Inglés (Original)</div>
+        <div>🇲🇽 Español (Traducción)</div>
+        <div>✍️ Tu intento</div>
+        <div></div>
+      </div>
+      <div id="tableBody"></div>
+    </div>
+
+    <div class="empty" id="emptyState">
+      <div class="icon">📚</div>
+      <h3>No hay palabras todavía</h3>
+      <p>Agrega palabras o pega una lista para comenzar</p>
+    </div>
+
+    <div class="actions dn" id="actionButtons">
+      <button class="btn btn-outline" onclick="retryAll()">🔄 Reintentar Todo</button>
+      <button class="btn btn-green" id="saveBtn" onclick="saveCorrectToLearned()" disabled>🏆 Guardar Correctas (0)</button>
+      <button class="btn btn-danger" onclick="clearAll()">🗑️ Borrar Todo</button>
+    </div>
+
+    <div class="instructions">
+      <strong>¿Cómo funciona?</strong><br>
+      1. Agrega palabras una por una, o usa <strong>"📋 Pegar lista"</strong> para pegar muchas.<br>
+      2. La traducción al español aparece automáticamente. La palabra original queda oculta.<br>
+      3. Escribe la palabra en inglés en <strong>"Tu intento"</strong> y presiona <strong>Enter</strong>.<br>
+      4. Verde ✅ = correcto · Rojo ❌ = incorrecto.<br>
+      5. <strong>Reintentar</strong> limpia tus intentos · <strong>Guardar Correctas</strong> mueve las buenas a "Aprendidas".
+    </div>
+  </div>
+
+  <!-- LEARNED TAB -->
+  <div id="learnedSection" class="dn">
+    <div class="table-wrap dn" id="learnedTableWrap">
+      <div class="learned-header">
+        <div>🇬🇧 Inglés</div>
+        <div>🇲🇽 Español</div>
+        <div>📅 Fecha</div>
+      </div>
+      <div id="learnedBody"></div>
+    </div>
+    <div class="learned-footer dn" id="learnedFooter">
+      <span class="pill green" id="learnedCount">🏆 0 palabras aprendidas</span>
+      <button class="btn btn-danger" onclick="clearLearned()">Borrar historial</button>
+    </div>
+    <div class="empty" id="learnedEmpty">
+      <div class="icon">🏆</div>
+      <h3>Aún no hay palabras aprendidas</h3>
+      <p>Las palabras que escribas correctamente aparecerán aquí</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==============================================================
+//  🔥 FIREBASE CONFIG — REEMPLAZA CON TUS DATOS
+// ==============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyDqxQqR7DU0OiVYzwUIsISzhS_8kiGU0m8",
+  authDomain: "ingles-2c648.firebaseapp.com",
+  projectId: "ingles-2c648",
+  storageBucket: "ingles-2c648.firebasestorage.app",
+  messagingSenderId: "739478966330",
+  appId: "1:739478966330:web:40f25621066c2933db6503"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ==============================================================
+//  STATE
+// ==============================================================
+let words = [];
+let learned = [];
+let userId = null;
+let isTranslating = false;
+
+// ==============================================================
+//  🔒 PATTERN LOCK
+// ==============================================================
+const DOTS_PER_ROW = 3;
+const DOT_SIZE = 20;
+let patternDots = [];
+let currentPattern = [];
+let isDrawing = false;
+let patternPhase = 'unknown'; // 'create', 'confirm', 'unlock'
+let firstPattern = null;
+
+function initPatternLock() {
+  const grid = document.getElementById('patternGrid');
+  const gridSize = grid.offsetWidth;
+  const spacing = gridSize / (DOTS_PER_ROW + 1);
+
+  // Clear existing dots
+  grid.querySelectorAll('.pattern-dot').forEach(d => d.remove());
+  patternDots = [];
+
+  for (let row = 0; row < DOTS_PER_ROW; row++) {
+    for (let col = 0; col < DOTS_PER_ROW; col++) {
+      const dot = document.createElement('div');
+      dot.className = 'pattern-dot';
+      const x = spacing * (col + 1) - DOT_SIZE / 2;
+      const y = spacing * (row + 1) - DOT_SIZE / 2;
+      dot.style.left = x + 'px';
+      dot.style.top = y + 'px';
+      dot.dataset.index = row * DOTS_PER_ROW + col;
+      grid.appendChild(dot);
+      patternDots.push({
+        el: dot,
+        cx: spacing * (col + 1),
+        cy: spacing * (row + 1),
+        index: row * DOTS_PER_ROW + col
+      });
+    }
+  }
+
+  // Canvas for lines
+  const canvas = document.getElementById('patternCanvas');
+  canvas.width = gridSize;
+  canvas.height = gridSize;
+
+  // Check if pattern exists
+  const savedHash = localStorage.getItem('ep_pattern_hash');
+  if (savedHash) {
+    patternPhase = 'unlock';
+    document.getElementById('lockMessage').textContent = 'Dibuja tu patrón para entrar';
+    document.getElementById('lockHint').textContent = 'Dibuja el patrón que configuraste';
+    document.getElementById('lockReset').classList.add('show');
+  } else {
+    patternPhase = 'create';
+    document.getElementById('lockMessage').textContent = 'Dibuja un patrón para crear tu contraseña';
+    document.getElementById('lockHint').textContent = 'Conecta al menos 4 puntos';
+  }
+
+  // Events
+  grid.addEventListener('pointerdown', onPatternStart);
+  grid.addEventListener('pointermove', onPatternMove);
+  grid.addEventListener('pointerup', onPatternEnd);
+  grid.addEventListener('pointerleave', onPatternEnd);
+}
+
+function getPointerPos(e) {
+  const grid = document.getElementById('patternGrid');
+  const rect = grid.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function getNearestDot(pos) {
+  const threshold = 35;
+  for (const dot of patternDots) {
+    const dist = Math.sqrt((pos.x - dot.cx) ** 2 + (pos.y - dot.cy) ** 2);
+    if (dist < threshold) return dot;
+  }
+  return null;
+}
+
+function onPatternStart(e) {
+  e.preventDefault();
+  isDrawing = true;
+  currentPattern = [];
+  clearDotStates();
+  const pos = getPointerPos(e);
+  const dot = getNearestDot(pos);
+  if (dot) addDotToPattern(dot);
+}
+
+function onPatternMove(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pos = getPointerPos(e);
+  const dot = getNearestDot(pos);
+  if (dot && !currentPattern.includes(dot.index)) {
+    addDotToPattern(dot);
+  }
+  drawLines(pos);
+}
+
+function onPatternEnd(e) {
+  if (!isDrawing) return;
+  isDrawing = false;
+  drawLines(null);
+  processPattern();
+}
+
+function addDotToPattern(dot) {
+  currentPattern.push(dot.index);
+  dot.el.classList.add('active');
+}
+
+function clearDotStates() {
+  patternDots.forEach(d => {
+    d.el.classList.remove('active', 'success', 'error');
+  });
+  const canvas = document.getElementById('patternCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function drawLines(cursorPos) {
+  const canvas = document.getElementById('patternCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (currentPattern.length === 0) return;
+
+  ctx.strokeStyle = 'rgba(77, 138, 240, 0.6)';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  const first = patternDots[currentPattern[0]];
+  ctx.moveTo(first.cx, first.cy);
+
+  for (let i = 1; i < currentPattern.length; i++) {
+    const dot = patternDots[currentPattern[i]];
+    ctx.lineTo(dot.cx, dot.cy);
+  }
+
+  if (cursorPos && isDrawing) {
+    ctx.lineTo(cursorPos.x, cursorPos.y);
+  }
+  ctx.stroke();
+}
+
+function hashPattern(pattern) {
+  const str = pattern.join('-');
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return 'user_' + Math.abs(hash).toString(36);
+}
+
+function processPattern() {
+  const error = document.getElementById('lockError');
+
+  if (currentPattern.length < 4) {
+    error.textContent = 'Mínimo 4 puntos. Intenta de nuevo.';
+    setDotState('error');
+    setTimeout(clearDotStates, 800);
+    return;
+  }
+
+  if (patternPhase === 'create') {
+    firstPattern = [...currentPattern];
+    patternPhase = 'confirm';
+    document.getElementById('lockMessage').textContent = 'Repite el patrón para confirmar';
+    document.getElementById('lockHint').textContent = 'Dibuja el mismo patrón otra vez';
+    error.textContent = '';
+    setDotState('success');
+    setTimeout(clearDotStates, 600);
+
+  } else if (patternPhase === 'confirm') {
+    if (currentPattern.join(',') === firstPattern.join(',')) {
+      const hash = hashPattern(currentPattern);
+      localStorage.setItem('ep_pattern_hash', hash);
+      userId = hash;
+      error.textContent = '';
+      setDotState('success');
+      setTimeout(() => unlockApp(), 500);
+    } else {
+      error.textContent = 'Los patrones no coinciden. Empieza de nuevo.';
+      patternPhase = 'create';
+      firstPattern = null;
+      document.getElementById('lockMessage').textContent = 'Dibuja un patrón para crear tu contraseña';
+      document.getElementById('lockHint').textContent = 'Conecta al menos 4 puntos';
+      setDotState('error');
+      setTimeout(clearDotStates, 800);
+    }
+
+  } else if (patternPhase === 'unlock') {
+    const hash = hashPattern(currentPattern);
+    const saved = localStorage.getItem('ep_pattern_hash');
+    if (hash === saved) {
+      userId = hash;
+      error.textContent = '';
+      setDotState('success');
+      setTimeout(() => unlockApp(), 400);
+    } else {
+      error.textContent = 'Patrón incorrecto. Intenta de nuevo.';
+      setDotState('error');
+      setTimeout(clearDotStates, 800);
+    }
+  }
+}
+
+function setDotState(state) {
+  currentPattern.forEach(idx => {
+    patternDots[idx].el.classList.remove('active');
+    patternDots[idx].el.classList.add(state);
+  });
+}
+
+function resetPattern() {
+  if (confirm('¿Borrar el patrón? Tendrás que crear uno nuevo.')) {
+    localStorage.removeItem('ep_pattern_hash');
+    patternPhase = 'create';
+    firstPattern = null;
+    document.getElementById('lockMessage').textContent = 'Dibuja un patrón para crear tu contraseña';
+    document.getElementById('lockHint').textContent = 'Conecta al menos 4 puntos';
+    document.getElementById('lockError').textContent = '';
+    document.getElementById('lockReset').classList.remove('show');
+    clearDotStates();
+  }
+}
+
+function lockApp() {
+  document.getElementById('mainApp').classList.add('dn');
+  document.getElementById('lockScreen').classList.remove('hidden');
+  patternPhase = 'unlock';
+  document.getElementById('lockMessage').textContent = 'Dibuja tu patrón para entrar';
+  document.getElementById('lockHint').textContent = 'Dibuja el patrón que configuraste';
+  document.getElementById('lockError').textContent = '';
+  document.getElementById('lockReset').classList.add('show');
+  clearDotStates();
+}
+
+async function unlockApp() {
+  document.getElementById('lockScreen').classList.add('hidden');
+  document.getElementById('mainApp').classList.remove('dn');
+  await loadData();
+}
+
+// ==============================================================
+//  🔥 FIRESTORE STORAGE
+// ==============================================================
+function showSaving() {
+  const el = document.getElementById('savingIndicator');
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 1200);
+}
+
+async function loadData() {
+  if (!userId) return;
+  try {
+    const doc = await db.collection('users').doc(userId).get();
+    if (doc.exists) {
+      const data = doc.data();
+      words = data.words || [];
+      learned = data.learned || [];
+    } else {
+      words = [];
+      learned = [];
+    }
+  } catch (err) {
+    console.error('Error loading:', err);
+  }
+  render();
+}
+
+async function saveToFirestore() {
+  if (!userId) return;
+  showSaving();
+  try {
+    await db.collection('users').doc(userId).set({
+      words: words,
+      learned: learned,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    console.error('Error saving:', err);
+  }
+}
+
+// ==============================================================
+//  TRANSLATION (Claude API)
+// ==============================================================
+async function translateWord(word) {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: `Translate the following English word or phrase to Spanish. Reply ONLY with the Spanish translation, nothing else.\n\nEnglish: ${word}` }]
+      })
+    });
+    const data = await res.json();
+    return (data.content?.[0]?.text || "Error").trim();
+  } catch { return "Error de traducción"; }
+}
+
+async function translateBatch(wordList) {
+  try {
+    const prompt = wordList.map((w, i) => `${i + 1}. ${w}`).join("\n");
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4000,
+        messages: [{ role: "user", content: `Translate each English word/phrase to Spanish. Reply ONLY with a JSON array of strings. No markdown.\n\n${prompt}` }]
+      })
+    });
+    const data = await res.json();
+    const text = (data.content?.[0]?.text || "[]").trim().replace(/```json|```/g, "").trim();
+    return JSON.parse(text);
+  } catch { return wordList.map(() => "Error"); }
+}
+
+// ==============================================================
+//  APP ACTIONS
+// ==============================================================
+async function addWord() {
+  const input = document.getElementById('wordInput');
+  const trimmed = input.value.trim();
+  if (!trimmed || isTranslating) return;
+  setTranslating(true, '⏳ Traduciendo...');
+  const spanish = await translateWord(trimmed);
+  words.push({ english: trimmed, spanish, attempt: '', checked: false });
+  input.value = '';
+  await saveToFirestore();
+  setTranslating(false);
+  render();
+}
+
+async function addBulkWords() {
+  const textarea = document.getElementById('bulkTextarea');
+  const lines = textarea.value.split("\n").map(l => l.replace(/^[\d]+[\.\)\-\s]+/, '').trim()).filter(l => l.length > 0);
+  if (lines.length === 0 || isTranslating) return;
+
+  setTranslating(true, `⏳ 0/${lines.length}...`);
+  const bar = document.getElementById('progressBar');
+  const fill = document.getElementById('progressFill');
+  bar.classList.remove('dn');
+
+  const batchSize = 15;
+  for (let i = 0; i < lines.length; i += batchSize) {
+    const batch = lines.slice(i, i + batchSize);
+    const translations = await translateBatch(batch);
+    batch.forEach((w, idx) => {
+      words.push({ english: w, spanish: translations[idx] || "Error", attempt: '', checked: false });
+    });
+    const done = Math.min(i + batchSize, lines.length);
+    fill.style.width = `${(done / lines.length) * 100}%`;
+    document.getElementById('bulkBtn').textContent = `⏳ ${done}/${lines.length}...`;
+  }
+
+  textarea.value = '';
+  bar.classList.add('dn');
+  fill.style.width = '0%';
+  await saveToFirestore();
+  setTranslating(false);
+  render();
+  updateBulkCount();
+}
+
+function checkAttempt(index) {
+  words[index].checked = true;
+  saveToFirestore();
+  render();
+}
+
+function updateAttempt(index, value) {
+  words[index].attempt = value;
+  words[index].checked = false;
+}
+
+function removeWord(index) {
+  words.splice(index, 1);
+  saveToFirestore();
+  render();
+}
+
+function retryAll() {
+  words.forEach(w => { w.attempt = ''; w.checked = false; });
+  saveToFirestore();
+  render();
+}
+
+function clearAll() {
+  if (!confirm('¿Borrar todas las palabras de práctica?')) return;
+  words = [];
+  saveToFirestore();
+  render();
+}
+
+function saveCorrectToLearned() {
+  const correct = words.filter(w => isCorrect(w));
+  if (correct.length === 0) return;
+  correct.forEach(w => {
+    learned.push({ english: w.english, spanish: w.spanish, date: new Date().toLocaleDateString() });
+  });
+  words = words.filter(w => !isCorrect(w));
+  saveToFirestore();
+  showToast();
+  render();
+}
+
+function clearLearned() {
+  if (!confirm('¿Borrar todo el historial de aprendidas?')) return;
+  learned = [];
+  saveToFirestore();
+  render();
+}
+
+// ==============================================================
+//  HELPERS
+// ==============================================================
+function isCorrect(w) { return w.checked && w.attempt.trim().toLowerCase() === w.english.trim().toLowerCase(); }
+function isWrong(w) { return w.checked && w.attempt.trim().toLowerCase() !== w.english.trim().toLowerCase(); }
+
+function setTranslating(state, label) {
+  isTranslating = state;
+  const addBtn = document.getElementById('addBtn');
+  const bulkBtn = document.getElementById('bulkBtn');
+  const input = document.getElementById('wordInput');
+  addBtn.textContent = state ? (label || '⏳...') : '➕ Agregar';
+  addBtn.disabled = state;
+  bulkBtn.disabled = state;
+  input.disabled = state;
+  if (!state) bulkBtn.textContent = '➕ Agregar Todas';
+}
+
+function showToast() {
+  const t = document.getElementById('toast');
+  t.classList.remove('dn');
+  setTimeout(() => t.classList.add('dn'), 2500);
+}
+
+function switchTab(tab) {
+  document.getElementById('practiceSection').classList.toggle('dn', tab !== 'practice');
+  document.getElementById('learnedSection').classList.toggle('dn', tab !== 'learned');
+  document.getElementById('tabPractice').classList.toggle('active', tab === 'practice');
+  document.getElementById('tabLearned').classList.toggle('active', tab === 'learned');
+}
+
+function setInputMode(mode) {
+  document.getElementById('singleInput').classList.toggle('dn', mode !== 'single');
+  document.getElementById('bulkInput').classList.toggle('dn', mode !== 'bulk');
+  document.getElementById('toggleSingle').classList.toggle('active', mode === 'single');
+  document.getElementById('toggleBulk').classList.toggle('active', mode === 'bulk');
+}
+
+function updateBulkCount() {
+  const count = document.getElementById('bulkTextarea').value.split("\n").filter(l => l.trim()).length;
+  document.getElementById('bulkCount').textContent = `${count} palabras detectadas`;
+}
+
+function escapeHTML(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ==============================================================
+//  RENDER
+// ==============================================================
+function render() {
+  const correctCount = words.filter(w => isCorrect(w)).length;
+  const checkedCount = words.filter(w => w.checked).length;
+
+  document.getElementById('badgePractice').textContent = words.length;
+  document.getElementById('badgeLearned').textContent = learned.length;
+
+  const pills = document.getElementById('statsPills');
+  pills.innerHTML = '';
+  if (learned.length > 0) pills.innerHTML += `<span class="pill green">🏆 ${learned.length}</span>`;
+  if (words.length > 0) pills.innerHTML += `<span class="pill">${words.length} en práctica</span>`;
+
+  const tableWrap = document.getElementById('tableWrap');
+  const emptyState = document.getElementById('emptyState');
+  const actionBtns = document.getElementById('actionButtons');
+  const statsDiv = document.getElementById('practiceStats');
+
+  if (words.length > 0) {
+    tableWrap.classList.remove('dn');
+    emptyState.classList.add('dn');
+    actionBtns.classList.remove('dn');
+    statsDiv.classList.remove('dn');
+
+    let statsHTML = `<span class="pill">${words.length} palabras</span>`;
+    if (checkedCount > 0) {
+      const c = correctCount === checkedCount ? 'green' : 'gold';
+      statsHTML += `<span class="pill ${c}">${correctCount}/${checkedCount} correctas</span>`;
+    }
+    statsDiv.innerHTML = statsHTML;
+
+    const body = document.getElementById('tableBody');
+    body.innerHTML = '';
+    words.forEach((w, i) => {
+      const correct = isCorrect(w);
+      const wrong = isWrong(w);
+      const rowClass = correct ? 'table-row correct' : wrong ? 'table-row wrong' : 'table-row';
+      const engClass = w.checked ? 'cell cell-english revealed' : 'cell cell-english hidden';
+      const inputClass = correct ? 'correct' : wrong ? 'wrong' : '';
+      const emoji = correct ? ' ✅' : wrong ? ' ❌' : '';
+
+      const row = document.createElement('div');
+      row.className = rowClass;
+      row.innerHTML = `
+        <div class="${engClass}">${escapeHTML(w.english)}${emoji}</div>
+        <div class="cell cell-spanish">${escapeHTML(w.spanish)}</div>
+        <div class="cell" style="padding:5px 8px">
+          <input type="text" class="${inputClass}" value="${escapeHTML(w.attempt)}"
+            placeholder="Escribe aquí..." ${correct ? 'disabled' : ''}
+            oninput="updateAttempt(${i}, this.value)"
+            onkeydown="if(event.key==='Enter')checkAttempt(${i})">
+        </div>
+        <div style="text-align:center">
+          <button class="btn-delete" onclick="removeWord(${i})" title="Eliminar">🗑</button>
+        </div>`;
+      body.appendChild(row);
+    });
+
+    const saveBtn = document.getElementById('saveBtn');
+    saveBtn.disabled = correctCount === 0;
+    saveBtn.textContent = `🏆 Guardar Correctas (${correctCount})`;
+  } else {
+    tableWrap.classList.add('dn');
+    emptyState.classList.remove('dn');
+    actionBtns.classList.add('dn');
+    statsDiv.classList.add('dn');
+  }
+
+  // Learned
+  const lWrap = document.getElementById('learnedTableWrap');
+  const lEmpty = document.getElementById('learnedEmpty');
+  const lFooter = document.getElementById('learnedFooter');
+
+  if (learned.length > 0) {
+    lWrap.classList.remove('dn');
+    lEmpty.classList.add('dn');
+    lFooter.classList.remove('dn');
+    document.getElementById('learnedCount').textContent = `🏆 ${learned.length} aprendidas`;
+
+    const lBody = document.getElementById('learnedBody');
+    lBody.innerHTML = '';
+    learned.forEach(w => {
+      const row = document.createElement('div');
+      row.className = 'learned-row';
+      row.innerHTML = `
+        <div class="cell-eng">${escapeHTML(w.english)}</div>
+        <div class="cell-esp">${escapeHTML(w.spanish)}</div>
+        <div class="cell-date">${escapeHTML(w.date)}</div>`;
+      lBody.appendChild(row);
+    });
+  } else {
+    lWrap.classList.add('dn');
+    lEmpty.classList.remove('dn');
+    lFooter.classList.add('dn');
+  }
+}
+
+// ==============================================================
+//  INIT
+// ==============================================================
+document.getElementById('bulkTextarea').addEventListener('input', updateBulkCount);
+window.addEventListener('DOMContentLoaded', () => {
+  initPatternLock();
+});
+</script>
+</body>
+</html>
